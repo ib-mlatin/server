@@ -18660,7 +18660,7 @@ void
 wsrep_innobase_kill_one_trx(
 	THD* bf_thd,
 	trx_t *victim_trx,
-	bool signal)
+	my_bool signal)
 {
 	ut_ad(bf_thd);
 	ut_ad(victim_trx);
@@ -18723,7 +18723,7 @@ wsrep_innobase_kill_one_trx(
 
 	if (wsrep_thd_bf_abort(bf_thd, thd, signal))
 	{
-		lock_t*  wait_lock = victim_trx->lock.wait_lock;
+		lock_t*  wait_lock= victim_trx->lock.wait_lock;
 		if (wait_lock) {
 			DBUG_ASSERT(victim_trx->is_wsrep());
 			WSREP_DEBUG("victim has wait flag: %lu",
@@ -18748,8 +18748,7 @@ wsrep_innobase_kill_one_trx(
   @return -1 victim thread was aborted (no transaction)
 */
 static
-void
-wsrep_abort_transaction(
+void wsrep_abort_transaction(
 	handlerton*,
 	THD *bf_thd,
 	THD *victim_thd,
@@ -18759,7 +18758,7 @@ wsrep_abort_transaction(
 	ut_ad(bf_thd);
 	ut_ad(victim_thd);
 
-	trx_t* victim_trx	= thd_to_trx(victim_thd);
+	trx_t* victim_trx= thd_to_trx(victim_thd);
 
 	WSREP_DEBUG("abort transaction: BF: %s victim: %s victim conf: %s",
 			wsrep_thd_query(bf_thd),
