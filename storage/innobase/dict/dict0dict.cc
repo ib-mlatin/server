@@ -811,8 +811,10 @@ return_without_mdl:
   goto retry;
 }
 
-template dict_table_t*
-dict_acquire_mdl_shared<true>(dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
+template dict_table_t* dict_acquire_mdl_shared<false>
+(dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
+template dict_table_t* dict_acquire_mdl_shared<true>
+(dict_table_t*,THD*,MDL_ticket**,dict_table_op_t);
 
 /** Look up a table by numeric identifier.
 @param[in]      table_id        table identifier
