@@ -10909,20 +10909,22 @@ lock_fail:
 	dberr_t error = DB_SUCCESS;
 	if (!ctx0->old_table->is_stats_table() &&
 	    !ctx0->new_table->is_stats_table()) {
-		dict_sys.lock(SRW_LOCK_CALL);
 		table_stats = dict_table_open_on_name(
-			TABLE_STATS_NAME, true, DICT_ERR_IGNORE_NONE);
+			TABLE_STATS_NAME, false, DICT_ERR_IGNORE_NONE);
 		if (table_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			table_stats = dict_acquire_mdl_shared<false>(
 				table_stats, m_user_thd, &mdl_table);
+			dict_sys.unfreeze();
 		}
 		index_stats = dict_table_open_on_name(
-			INDEX_STATS_NAME, true, DICT_ERR_IGNORE_NONE);
+			INDEX_STATS_NAME, false, DICT_ERR_IGNORE_NONE);
 		if (index_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			index_stats = dict_acquire_mdl_shared<false>(
 				index_stats, m_user_thd, &mdl_index);
+			dict_sys.unfreeze();
 		}
-		dict_sys.unlock();
 
 		if (table_stats && index_stats
 		    && !strcmp(table_stats->name.m_name, TABLE_STATS_NAME)

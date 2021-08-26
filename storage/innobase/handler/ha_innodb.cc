@@ -1369,19 +1369,28 @@ static void innodb_drop_database(handlerton*, char *path)
     }
   }
 
+  dict_sys.unlock();
+
   dict_table_t *table_stats, *index_stats;
   MDL_ticket *mdl_table= nullptr, *mdl_index= nullptr;
-  table_stats= dict_table_open_on_name(TABLE_STATS_NAME, true,
+  table_stats= dict_table_open_on_name(TABLE_STATS_NAME, false,
                                        DICT_ERR_IGNORE_NONE);
   if (table_stats)
+  {
+    dict_sys.freeze(SRW_LOCK_CALL);
     table_stats= dict_acquire_mdl_shared<false>(table_stats,
                                                 thd, &mdl_table);
-  index_stats= dict_table_open_on_name(INDEX_STATS_NAME, true,
+    dict_sys.unfreeze();
+  }
+  index_stats= dict_table_open_on_name(INDEX_STATS_NAME, false,
                                        DICT_ERR_IGNORE_NONE);
   if (index_stats)
+  {
+    dict_sys.freeze(SRW_LOCK_CALL);
     index_stats= dict_acquire_mdl_shared<false>(index_stats,
                                                 thd, &mdl_index);
-  dict_sys.unlock();
+    dict_sys.unfreeze();
+  }
 
   trx_start_for_ddl(trx);
 
@@ -13454,18 +13463,25 @@ int ha_innobase::delete_table(const char *name)
   if (err == DB_SUCCESS && dict_stats_is_persistent_enabled(table) &&
       !table->is_stats_table())
   {
-    dict_sys.lock(SRW_LOCK_CALL);
-    table_stats= dict_table_open_on_name(TABLE_STATS_NAME, true,
+    table_stats= dict_table_open_on_name(TABLE_STATS_NAME, false,
                                          DICT_ERR_IGNORE_NONE);
     if (table_stats)
+    {
+      dict_sys.freeze(SRW_LOCK_CALL);
       table_stats= dict_acquire_mdl_shared<false>(table_stats,
                                                   thd, &mdl_table);
-    index_stats= dict_table_open_on_name(INDEX_STATS_NAME, true,
+      dict_sys.unfreeze();
+    }
+
+    index_stats= dict_table_open_on_name(INDEX_STATS_NAME, false,
                                          DICT_ERR_IGNORE_NONE);
     if (index_stats)
+    {
+      dict_sys.freeze(SRW_LOCK_CALL);
       index_stats= dict_acquire_mdl_shared<false>(index_stats,
                                                   thd, &mdl_index);
-    dict_sys.unlock();
+      dict_sys.unfreeze();
+    }
 
     if (table_stats && index_stats &&
         !strcmp(table_stats->name.m_name, TABLE_STATS_NAME) &&
@@ -13747,20 +13763,22 @@ int ha_innobase::truncate()
 
 	if (error == DB_SUCCESS && dict_stats_is_persistent_enabled(ib_table)
 	    && !ib_table->is_stats_table()) {
-		dict_sys.lock(SRW_LOCK_CALL);
-		table_stats= dict_table_open_on_name(TABLE_STATS_NAME, true,
+		table_stats= dict_table_open_on_name(TABLE_STATS_NAME, false,
 						     DICT_ERR_IGNORE_NONE);
 		if (table_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			table_stats = dict_acquire_mdl_shared<false>(
 				table_stats, m_user_thd, &mdl_table);
+			dict_sys.unfreeze();
 		}
-		index_stats = dict_table_open_on_name(INDEX_STATS_NAME, true,
+		index_stats = dict_table_open_on_name(INDEX_STATS_NAME, false,
 						      DICT_ERR_IGNORE_NONE);
 		if (index_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			index_stats = dict_acquire_mdl_shared<false>(
 				index_stats, m_user_thd, &mdl_index);
+			dict_sys.unfreeze();
 		}
-		dict_sys.unlock();
 
 		if (table_stats && index_stats
 		    && !strcmp(table_stats->name.m_name, TABLE_STATS_NAME)
@@ -13890,20 +13908,22 @@ ha_innobase::rename_table(
 	    && strcmp(norm_from, INDEX_STATS_NAME)
 	    && strcmp(norm_to, TABLE_STATS_NAME)
 	    && strcmp(norm_to, INDEX_STATS_NAME)) {
-		dict_sys.lock(SRW_LOCK_CALL);
-		table_stats = dict_table_open_on_name(TABLE_STATS_NAME, true,
+		table_stats = dict_table_open_on_name(TABLE_STATS_NAME, false,
 						      DICT_ERR_IGNORE_NONE);
 		if (table_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			table_stats = dict_acquire_mdl_shared<false>(
 				table_stats, thd, &mdl_table);
+			dict_sys.unfreeze();
 		}
-		index_stats = dict_table_open_on_name(INDEX_STATS_NAME, true,
+		index_stats = dict_table_open_on_name(INDEX_STATS_NAME, false,
 						      DICT_ERR_IGNORE_NONE);
 		if (index_stats) {
+			dict_sys.freeze(SRW_LOCK_CALL);
 			index_stats = dict_acquire_mdl_shared<false>(
 				index_stats, thd, &mdl_index);
+			dict_sys.unfreeze();
 		}
-		dict_sys.unlock();
 
 		if (table_stats && index_stats
 		    && !strcmp(table_stats->name.m_name, TABLE_STATS_NAME)

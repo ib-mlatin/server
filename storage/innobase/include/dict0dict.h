@@ -1538,8 +1538,6 @@ public:
     UT_LIST_ADD_LAST(table_LRU, table);
   }
 
-  /** Acquire a reference to a cached table. */
-  inline void acquire(dict_table_t *table);
 #ifdef UNIV_DEBUG
   /** @return whether any thread (not necessarily the current thread)
   is holding the latch; that is, this check may return false

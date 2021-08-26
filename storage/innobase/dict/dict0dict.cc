@@ -209,40 +209,26 @@ dict_remove_db_name(
 	return(s + 1);
 }
 
-/** Open a persistent table.
-@param[in]	table_id	persistent table identifier
-@param[in]	ignore_err	errors to ignore
-@param[in]	cached_only	whether to skip loading
-@return persistent table
-@retval	NULL if not found */
-static dict_table_t* dict_table_open_on_id_low(
-	table_id_t		table_id,
-	dict_err_ignore_t	ignore_err,
-	bool			cached_only)
-{
-	dict_table_t* table = dict_sys.find_table(table_id);
-
-	if (!table && !cached_only) {
-		table = dict_load_table_on_id(table_id, ignore_err);
-	}
-
-	return table;
-}
-
 /** Decrement the count of open handles */
 void dict_table_close(dict_table_t *table)
 {
-  if (dict_stats_is_persistent_enabled(table) &&
+  if (table->get_ref_count() == 1 &&
+      dict_stats_is_persistent_enabled(table) &&
       strchr(table->name.m_name, '/'))
   {
-    dict_sys.freeze(SRW_LOCK_CALL);
+    /* It looks like we are closing the last handle. The user could
+    have executed FLUSH TABLES in order to have the statistics reloaded
+    from the InnoDB persistent statistics tables. We must acquire
+    exclusive dict_sys.latch to prevent a race condition with another
+    thread concurrently acquiring a handle on the table. */
+    dict_sys.lock(SRW_LOCK_CALL);
     if (table->release())
     {
       table->stats_mutex_lock();
       dict_stats_deinit(table);
       table->stats_mutex_unlock();
     }
-    dict_sys.unfreeze();
+    dict_sys.unlock();
   }
   else
     table->release();
@@ -695,6 +681,7 @@ dict_acquire_mdl_shared(dict_table_t *table,
   else
   {
     ut_ad(dict_sys.frozen());
+    ut_ad(!dict_sys.locked());
     db_len= dict_get_db_name_len(table->name.m_name);
   }
 
@@ -717,7 +704,6 @@ dict_acquire_mdl_shared(dict_table_t *table,
 retry:
   if (!unaccessible && (!table->is_readable() || table->corrupted))
   {
-is_unaccessible:
     if (*mdl)
     {
       mdl_context->release_lock(*mdl);
@@ -733,10 +719,12 @@ is_unaccessible:
     return nullptr;
 
   if (!trylock)
-    dict_sys.unlock();
+    dict_sys.unfreeze();
+
   {
     MDL_request request;
-    MDL_REQUEST_INIT(&request,MDL_key::TABLE, db_buf, tbl_buf, MDL_SHARED, MDL_EXPLICIT);
+    MDL_REQUEST_INIT(&request,MDL_key::TABLE, db_buf, tbl_buf, MDL_SHARED,
+                     MDL_EXPLICIT);
     if (trylock
         ? mdl_context->try_acquire_lock(&request)
         : mdl_context->acquire_lock(&request,
@@ -750,19 +738,37 @@ is_unaccessible:
         return nullptr;
     }
     else
+    {
       *mdl= request.ticket;
+      if (trylock && !*mdl)
+        return nullptr;
+    }
   }
 
-  if (!trylock)
-    dict_sys.lock(SRW_LOCK_CALL);
-  else if (!*mdl)
-    return nullptr;
-
-  table= dict_table_open_on_id(table_id, !trylock, table_op);
-
-  if (!table)
+  dict_sys.freeze(SRW_LOCK_CALL);
+  table= dict_sys.find_table(table_id);
+  if (table)
+    table->acquire();
+  if (!table && table_op != DICT_TABLE_OP_OPEN_ONLY_IF_CACHED)
   {
-    /* The table was dropped. */
+    dict_sys.unfreeze();
+    dict_sys.lock(SRW_LOCK_CALL);
+    table= dict_load_table_on_id(table_id,
+                                 table_op == DICT_TABLE_OP_LOAD_TABLESPACE
+                                 ? DICT_ERR_IGNORE_RECOVER_LOCK
+                                 : DICT_ERR_IGNORE_FK_NOKEY);
+    if (table)
+      table->acquire();
+    dict_sys.unlock();
+    dict_sys.freeze(SRW_LOCK_CALL);
+  }
+
+  if (!table || !table->is_accessible())
+  {
+    table= nullptr;
+return_without_mdl:
+    if (trylock)
+      dict_sys.unfreeze();
     if (*mdl)
     {
       mdl_context->release_lock(*mdl);
@@ -770,9 +776,6 @@ is_unaccessible:
     }
     return nullptr;
   }
-
-  if (!table->is_accessible())
-    goto is_unaccessible;
 
   size_t db1_len, tbl1_len;
 
@@ -780,12 +783,7 @@ is_unaccessible:
   {
     /* The table was renamed to #sql prefix.
     Release MDL (if any) for the old name and return. */
-    if (*mdl)
-    {
-      mdl_context->release_lock(*mdl);
-      *mdl= nullptr;
-    }
-    return table;
+    goto return_without_mdl;
   }
 
   if (*mdl)
@@ -793,7 +791,11 @@ is_unaccessible:
     if (db_len == db1_len && tbl_len == tbl1_len &&
         !memcmp(db_buf, db_buf1, db_len) &&
         !memcmp(tbl_buf, tbl_buf1, tbl_len))
+    {
+      if (trylock)
+        dict_sys.unfreeze();
       return table;
+    }
 
     /* The table was renamed. Release MDL for the old name and
     try to acquire MDL for the new name. */
@@ -824,31 +826,47 @@ dict_table_open_on_id(table_id_t table_id, bool dict_locked,
                       dict_table_op_t table_op, THD *thd,
                       MDL_ticket **mdl)
 {
-	if (!dict_locked) {
-		dict_sys.lock(SRW_LOCK_CALL);
-	}
+  if (!dict_locked)
+    dict_sys.freeze(SRW_LOCK_CALL);
 
-	dict_table_t* table = dict_table_open_on_id_low(
-		table_id,
-		table_op == DICT_TABLE_OP_LOAD_TABLESPACE
-		? DICT_ERR_IGNORE_RECOVER_LOCK
-		: DICT_ERR_IGNORE_FK_NOKEY,
-		table_op == DICT_TABLE_OP_OPEN_ONLY_IF_CACHED);
+  dict_table_t *table= dict_sys.find_table(table_id);
 
-	if (table) {
-		dict_sys.acquire(table);
-	}
+  if (table)
+  {
+    table->acquire();
+    if (thd && !dict_locked)
+      table= dict_acquire_mdl_shared<false>(table, thd, mdl, table_op);
+  }
+  else if (table_op != DICT_TABLE_OP_OPEN_ONLY_IF_CACHED)
+  {
+    if (!dict_locked)
+    {
+      dict_sys.unfreeze();
+      dict_sys.lock(SRW_LOCK_CALL);
+    }
+    table= dict_load_table_on_id(table_id,
+                                 table_op == DICT_TABLE_OP_LOAD_TABLESPACE
+                                 ? DICT_ERR_IGNORE_RECOVER_LOCK
+                                 : DICT_ERR_IGNORE_FK_NOKEY);
+    if (table)
+      table->acquire();
+    if (!dict_locked)
+    {
+      dict_sys.unlock();
+      if (table && thd)
+      {
+        dict_sys.freeze(SRW_LOCK_CALL);
+        table= dict_acquire_mdl_shared<false>(table, thd, mdl, table_op);
+        dict_sys.unfreeze();
+      }
+      return table;
+    }
+  }
 
-	if (!dict_locked) {
-		if (thd) {
-			table = dict_acquire_mdl_shared<false>(
-				table, thd, mdl, table_op);
-		}
+  if (!dict_locked)
+    dict_sys.unfreeze();
 
-		dict_sys.unlock();
-	}
-
-	return table;
+  return table;
 }
 
 /********************************************************************//**
@@ -930,19 +948,6 @@ void dict_sys_t::create()
 }
 
 
-/** Acquire a reference to a cached table. */
-inline void dict_sys_t::acquire(dict_table_t *table)
-{
-  ut_ad(dict_sys.find(table));
-  if (table->can_be_evicted)
-  {
-    UT_LIST_REMOVE(table_LRU, table);
-    UT_LIST_ADD_FIRST(table_LRU, table);
-  }
-
-  table->acquire();
-}
-
 void dict_sys_t::lock_wait(SRW_LOCK_ARGS(const char *file, unsigned line))
 {
   ulonglong now= my_hrtime_coarse().val, old= 0;
@@ -1014,54 +1019,58 @@ dict_table_open_on_name(
 	bool			dict_locked,
 	dict_err_ignore_t	ignore_err)
 {
-	dict_table_t*	table;
-	DBUG_ENTER("dict_table_open_on_name");
-	DBUG_PRINT("dict_table_open_on_name", ("table: '%s'", table_name));
+  dict_table_t *table;
+  DBUG_ENTER("dict_table_open_on_name");
+  DBUG_PRINT("dict_table_open_on_name", ("table: '%s'", table_name));
 
-	if (!dict_locked) {
-		dict_sys.lock(SRW_LOCK_CALL);
-	}
+  const span<const char> name{table_name, strlen(table_name)};
 
-	ut_ad(table_name);
-	table = dict_sys.load_table({table_name, strlen(table_name)},
-				    ignore_err);
+  if (!dict_locked)
+  {
+    dict_sys.freeze(SRW_LOCK_CALL);
+    table= dict_sys.find_table(name);
+    if (table)
+    {
+      ut_ad(table->cached);
+      if (!(ignore_err & ~DICT_ERR_IGNORE_FK_NOKEY) &&
+          !table->is_readable() && table->corrupted)
+      {
+        ib::error() << "Table " << table->name
+                    << " is corrupted. Please drop the table and recreate.";
+        dict_sys.unfreeze();
+        DBUG_RETURN(nullptr);
+      }
+      table->acquire();
+      dict_sys.unfreeze();
+      DBUG_RETURN(table);
+    }
+    dict_sys.unfreeze();
+    dict_sys.lock(SRW_LOCK_CALL);
+  }
 
-	if (table) {
-		ut_ad(table->cached);
+  table= dict_sys.load_table(name, ignore_err);
 
-		/* If table is encrypted or corrupted */
-		if (!(ignore_err & ~DICT_ERR_IGNORE_FK_NOKEY)
-		    && !table->is_readable()) {
-			/* Make life easy for drop table. */
-			dict_sys.prevent_eviction(table);
+  if (table)
+  {
+    ut_ad(table->cached);
+    if (!(ignore_err & ~DICT_ERR_IGNORE_FK_NOKEY) &&
+        !table->is_readable() && table->corrupted)
+    {
+      ib::error() << "Table " << table->name
+                  << " is corrupted. Please drop the table and recreate.";
+      if (!dict_locked)
+        dict_sys.unlock();
+      DBUG_RETURN(nullptr);
+    }
 
-			if (table->corrupted) {
+    table->acquire();
+  }
 
-				ib::error() << "Table " << table->name
-					<< " is corrupted. Please "
-					"drop the table and recreate.";
-				table = nullptr;
-			} else {
-				dict_sys.acquire(table);
-			}
+  ut_ad(dict_lru_validate());
+  if (!dict_locked)
+    dict_sys.unlock();
 
-			if (!dict_locked) {
-				dict_sys.unlock();
-			}
-
-			DBUG_RETURN(table);
-		}
-
-		dict_sys.acquire(table);
-	}
-
-	ut_ad(dict_lru_validate());
-
-	if (!dict_locked) {
-		dict_sys.unlock();
-	}
-
-	DBUG_RETURN(table);
+  DBUG_RETURN(table);
 }
 
 /**********************************************************************//**
