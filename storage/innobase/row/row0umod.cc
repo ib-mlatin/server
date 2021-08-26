@@ -1327,8 +1327,7 @@ row_undo_mod(
 {
 	dberr_t	err;
 	ut_ad(thr_get_trx(thr) == node->trx);
-	const bool dict_locked = node->trx->dict_operation_lock_mode
-		== RW_X_LATCH;
+	const bool dict_locked = node->trx->dict_operation_lock_mode;
 
 	if (!row_undo_mod_parse_undo_rec(node, dict_locked)) {
 		return DB_SUCCESS;

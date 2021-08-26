@@ -732,11 +732,9 @@ public:
 	ulint		duplicates;	/*!< TRX_DUP_IGNORE | TRX_DUP_REPLACE */
 	bool		dict_operation;	/**< whether this modifies InnoDB
 					data dictionary */
-	ib_uint32_t	dict_operation_lock_mode;
-					/*!< 0, RW_S_LATCH, or RW_X_LATCH:
-					the latch mode trx currently holds
-					on dict_sys.latch. Protected
-					by dict_sys.latch. */
+	/** whether dict_sys.latch is held exclusively; protected by
+	dict_sys.latch */
+	bool dict_operation_lock_mode;
 
 	/** wall-clock time of the latest transition to TRX_STATE_ACTIVE;
 	used for diagnostic purposes only */

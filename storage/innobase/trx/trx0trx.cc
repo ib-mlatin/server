@@ -174,7 +174,7 @@ struct TrxFactory {
 		trx->rw_trx_hash_pins = 0;
 		trx_init(trx);
 
-		trx->dict_operation_lock_mode = 0;
+		trx->dict_operation_lock_mode = false;
 
 		trx->detailed_error = reinterpret_cast<char*>(
 			ut_zalloc_nokey(MAX_DETAILED_ERROR_LEN));
@@ -215,7 +215,7 @@ struct TrxFactory {
 
 		ut_a(trx->lock.wait_lock == NULL);
 		ut_a(trx->lock.wait_thr == NULL);
-		ut_a(trx->dict_operation_lock_mode == 0);
+		ut_a(!trx->dict_operation_lock_mode);
 
 		if (trx->lock.lock_heap != NULL) {
 			mem_heap_free(trx->lock.lock_heap);

@@ -4073,7 +4073,7 @@ fts_sync_commit(
 	}
 
 	/* Avoid assertion in trx_t::free(). */
-	trx->dict_operation_lock_mode = 0;
+	trx->dict_operation_lock_mode = false;
 	trx->free();
 
 	return(error);
@@ -4123,7 +4123,7 @@ fts_sync_rollback(
 	fts_sql_rollback(trx);
 
 	/* Avoid assertion in trx_t::free(). */
-	trx->dict_operation_lock_mode = 0;
+	trx->dict_operation_lock_mode = false;
 	trx->free();
 }
 

@@ -1352,14 +1352,7 @@ class dict_sys_t
   /** The my_hrtime_coarse().val of the oldest lock_wait() start, or 0 */
   std::atomic<ulonglong> latch_ex_wait_start;
 
-  /** @brief the data dictionary rw-latch protecting dict_sys
-
-  Table create, drop, etc. reserve this in X-mode; implicit or
-  backround operations that are not fully covered by MDL
-  (rollback, foreign key checks) reserve this in S-mode.
-
-  This latch also prevents lock waits when accessing the InnoDB
-  data dictionary tables. @see trx_t::dict_operation_lock_mode */
+  /** the rw-latch protecting the data dictionary cache */
   MY_ALIGNED(CACHE_LINE_SIZE) srw_lock latch;
 #ifdef UNIV_DEBUG
   /** whether latch is being held in exclusive mode (by any thread) */
@@ -1615,9 +1608,9 @@ public:
   /** Estimate the used memory occupied by the data dictionary
   table and index objects.
   @return number of bytes occupied */
-  ulint rough_size() const
+  TPOOL_SUPPRESS_TSAN ulint rough_size() const
   {
-    /* No mutex; this is a very crude approximation anyway */
+    /* No latch; this is a very crude approximation anyway */
     ulint size = UT_LIST_GET_LEN(table_LRU) + UT_LIST_GET_LEN(table_non_LRU);
     size *= sizeof(dict_table_t)
       + sizeof(dict_index_t) * 2

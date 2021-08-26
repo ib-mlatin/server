@@ -2133,36 +2133,6 @@ row_update_cascade_for_mysql(
 }
 
 /*********************************************************************//**
-Locks the data dictionary exclusively for performing a table create or other
-data dictionary modification operation. */
-void
-row_mysql_lock_data_dictionary_func(
-/*================================*/
-#ifdef UNIV_PFS_RWLOCK
-	const char*	file,	/*!< in: file name */
-	unsigned	line,	/*!< in: line number */
-#endif
-	trx_t*		trx)	/*!< in/out: transaction */
-{
-	ut_ad(trx->dict_operation_lock_mode == 0);
-	dict_sys.lock(SRW_LOCK_ARGS(file, line));
-	trx->dict_operation_lock_mode = RW_X_LATCH;
-}
-
-/*********************************************************************//**
-Unlocks the data dictionary exclusive lock. */
-void
-row_mysql_unlock_data_dictionary(
-/*=============================*/
-	trx_t*	trx)	/*!< in/out: transaction */
-{
-	ut_ad(lock_trx_has_sys_table_locks(trx) == NULL);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
-	trx->dict_operation_lock_mode = 0;
-	dict_sys.unlock();
-}
-
-/*********************************************************************//**
 Creates a table for MySQL. On failure the transaction will be rolled back
 and the 'table' object will be freed.
 @return error code or DB_SUCCESS */
@@ -2181,7 +2151,7 @@ row_create_table_for_mysql(
 	ut_ad(trx->state == TRX_STATE_ACTIVE);
 	ut_ad(dict_sys.sys_tables_exist());
 	ut_ad(dict_sys.locked());
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 
 	DEBUG_SYNC_C("create_table");
 
@@ -2672,7 +2642,7 @@ row_rename_table_for_mysql(
 	ut_a(old_name != NULL);
 	ut_a(new_name != NULL);
 	ut_ad(trx->state == TRX_STATE_ACTIVE);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 
 	if (high_level_read_only) {
 		return(DB_READ_ONLY);

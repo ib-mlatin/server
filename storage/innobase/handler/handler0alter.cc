@@ -4067,7 +4067,7 @@ online_retry_drop_indexes_low(
 	trx_t*		trx)	/*!< in/out: transaction */
 {
 	ut_ad(dict_sys.locked());
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(trx->dict_operation);
 
 	/* We can have table->n_ref_count > 1, because other threads
@@ -4772,7 +4772,7 @@ innobase_update_gis_column_type(
 	DBUG_ENTER("innobase_update_gis_column_type");
 
 	DBUG_ASSERT(trx->dict_operation);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(dict_sys.locked());
 
 	info = pars_info_create();
@@ -7016,7 +7016,7 @@ error_handling_drop_uncached:
 
 	if (fts_index) {
 		ut_ad(ctx->trx->dict_operation);
-		ut_ad(ctx->trx->dict_operation_lock_mode == RW_X_LATCH);
+		ut_ad(ctx->trx->dict_operation_lock_mode);
 		ut_ad(dict_sys.locked());
 
 		DICT_TF2_FLAG_SET(ctx->new_table, DICT_TF2_FTS);
@@ -7320,7 +7320,7 @@ rename_index_try(
 {
 	DBUG_ENTER("rename_index_try");
 	ut_ad(dict_sys.locked());
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 
 	pars_info_t*	pinfo;
 	dberr_t		err;
@@ -7542,7 +7542,7 @@ ha_innobase::prepare_inplace_alter_table(
 
 	if (!(ha_alter_info->handler_flags & ~INNOBASE_INPLACE_IGNORE)) {
 		/* Nothing to do */
-		DBUG_ASSERT(m_prebuilt->trx->dict_operation_lock_mode == 0);
+		DBUG_ASSERT(!m_prebuilt->trx->dict_operation_lock_mode);
 		DBUG_RETURN(false);
 	}
 
@@ -7622,7 +7622,7 @@ ha_innobase::prepare_inplace_alter_table(
 		    ha_alter_info->key_info_buffer,
 		    ha_alter_info->key_count)) {
 err_exit_no_heap:
-		DBUG_ASSERT(m_prebuilt->trx->dict_operation_lock_mode == 0);
+		DBUG_ASSERT(!m_prebuilt->trx->dict_operation_lock_mode);
 		online_retry_drop_indexes(m_prebuilt->table, m_user_thd);
 		DBUG_RETURN(true);
 	}
@@ -8081,7 +8081,7 @@ err_exit:
 		== ALTER_OPTIONS
 		&& !alter_options_need_rebuild(ha_alter_info, table))) {
 
-		DBUG_ASSERT(m_prebuilt->trx->dict_operation_lock_mode == 0);
+		DBUG_ASSERT(!m_prebuilt->trx->dict_operation_lock_mode);
 		online_retry_drop_indexes(m_prebuilt->table, m_user_thd);
 
 		if (heap) {
@@ -8831,7 +8831,7 @@ innobase_drop_foreign_try(
 	DBUG_ENTER("innobase_drop_foreign_try");
 
 	DBUG_ASSERT(trx->dict_operation);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(dict_sys.locked());
 
 	/* Drop the constraint from the data dictionary. */
@@ -8887,7 +8887,7 @@ innobase_rename_column_try(
 	DBUG_ENTER("innobase_rename_column_try");
 
 	DBUG_ASSERT(trx->dict_operation);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(dict_sys.locked());
 
 	if (ctx.need_rebuild()) {
@@ -9201,7 +9201,7 @@ innobase_rename_or_enlarge_column_try(
 	DBUG_ASSERT(!ctx->need_rebuild());
 
 	DBUG_ASSERT(trx->dict_operation);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(dict_sys.locked());
 
 	ulint n_base;
@@ -9879,7 +9879,7 @@ commit_try_rebuild(
 
 	DBUG_ENTER("commit_try_rebuild");
 	DBUG_ASSERT(ctx->need_rebuild());
-	DBUG_ASSERT(trx->dict_operation_lock_mode == RW_X_LATCH);
+	DBUG_ASSERT(trx->dict_operation_lock_mode);
 	DBUG_ASSERT(!(ha_alter_info->handler_flags
 		      & ALTER_DROP_FOREIGN_KEY)
 		    || ctx->num_to_drop_fk > 0);
@@ -10146,7 +10146,7 @@ commit_try_norebuild(
 {
 	DBUG_ENTER("commit_try_norebuild");
 	DBUG_ASSERT(!ctx->need_rebuild());
-	DBUG_ASSERT(trx->dict_operation_lock_mode == RW_X_LATCH);
+	DBUG_ASSERT(trx->dict_operation_lock_mode);
 	DBUG_ASSERT(!(ha_alter_info->handler_flags
 		      & ALTER_DROP_FOREIGN_KEY)
 		    || ctx->num_to_drop_fk > 0);

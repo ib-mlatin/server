@@ -3678,7 +3678,7 @@ row_merge_drop_index_dict(
 	pars_info_t*	info;
 
 	ut_ad(!srv_read_only_mode);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(trx->dict_operation);
 	ut_ad(dict_sys.locked());
 
@@ -3741,7 +3741,7 @@ row_merge_drop_indexes_dict(
 	pars_info_t*	info;
 
 	ut_ad(!srv_read_only_mode);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(trx->dict_operation);
 	ut_ad(dict_sys.locked());
 
@@ -3814,7 +3814,7 @@ row_merge_drop_indexes(
 	dict_index_t*	next_index;
 
 	ut_ad(!srv_read_only_mode);
-	ut_ad(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(trx->dict_operation);
 	ut_ad(dict_sys.locked());
 
@@ -4245,7 +4245,7 @@ row_merge_rename_index_to_add(
 		"WHERE TABLE_ID = :tableid AND ID = :indexid;\n"
 		"END;\n";
 
-	ut_a(trx->dict_operation_lock_mode == RW_X_LATCH);
+	ut_ad(trx->dict_operation_lock_mode);
 	ut_ad(trx->dict_operation);
 
 	trx->op_info = "renaming index to add";

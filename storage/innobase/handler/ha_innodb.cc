@@ -3050,7 +3050,7 @@ ha_innobase::update_thd(
 
 	trx_t*	trx = check_trx_exists(thd);
 
-	ut_ad(trx->dict_operation_lock_mode == 0);
+	ut_ad(!trx->dict_operation_lock_mode);
 	ut_ad(!trx->dict_operation);
 
 	if (m_prebuilt->trx != trx) {
@@ -4454,7 +4454,7 @@ innobase_commit(
 
 	trx_t*	trx = check_trx_exists(thd);
 
-	ut_ad(trx->dict_operation_lock_mode == 0);
+	ut_ad(!trx->dict_operation_lock_mode);
 	ut_ad(!trx->dict_operation);
 
 	/* Transaction is deregistered only in a commit or a rollback. If
@@ -4543,7 +4543,7 @@ innobase_rollback(
 
 	trx_t*	trx = check_trx_exists(thd);
 
-	ut_ad(trx->dict_operation_lock_mode == 0);
+	ut_ad(!trx->dict_operation_lock_mode);
 	ut_ad(!trx->dict_operation);
 
 	/* Reset the number AUTO-INC rows required */
@@ -13478,12 +13478,12 @@ int ha_innobase::delete_table(const char *name)
     err= lock_sys_tables(trx);
 
   dict_sys.lock(SRW_LOCK_CALL);
-  trx->dict_operation_lock_mode= RW_X_LATCH;
+  trx->dict_operation_lock_mode= true;
 
   if (err != DB_SUCCESS)
   {
 err_exit:
-    trx->dict_operation_lock_mode= 0;
+    trx->dict_operation_lock_mode= false;
     trx->rollback();
     switch (err) {
     case DB_CANNOT_DROP_CONSTRAINT:

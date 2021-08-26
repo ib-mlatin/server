@@ -2738,8 +2738,8 @@ release_and_exit:
 	pars_info_add_ull_literal(pinfo, "sum_of_other_index_sizes",
 		table->stat_sum_of_other_index_sizes);
 
-	trx->dict_operation_lock_mode = RW_X_LATCH;
 	dict_sys.lock(SRW_LOCK_CALL);
+	trx->dict_operation_lock_mode = true;
 
 	ret = dict_stats_exec_sql(
 		pinfo,
@@ -2769,7 +2769,7 @@ release_and_exit:
 rollback_and_exit:
 		trx->rollback();
 free_and_exit:
-		trx->dict_operation_lock_mode = 0;
+		trx->dict_operation_lock_mode = false;
 		dict_sys.unlock();
 unlocked_free_and_exit:
 		trx->free();
