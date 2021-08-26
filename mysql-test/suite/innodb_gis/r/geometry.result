@@ -1,5 +1,7 @@
 SET default_storage_engine=InnoDB;
 SET innodb_strict_mode=OFF;
+SET @save_innodb_stats_persistent=@@GLOBAL.innodb_stats_persistent;
+SET GLOBAL innodb_stats_persistent=0;
 CREATE TABLE gis_point  (fid INTEGER NOT NULL PRIMARY KEY, g POINT) ENGINE=InnoDB;
 CREATE TABLE gis_line  (fid INTEGER NOT NULL PRIMARY KEY, g LINESTRING) ENGINE=InnoDB;
 CREATE TABLE gis_polygon   (fid INTEGER NOT NULL PRIMARY KEY, g POLYGON) ENGINE=InnoDB;
@@ -1113,3 +1115,4 @@ DROP TABLE tab,tab2,tab3,parent;
 DROP PROCEDURE geominout;
 DROP PROCEDURE geom_insert;
 DROP PROCEDURE geom_cursor;
+SET GLOBAL innodb_stats_persistent=@save_innodb_stats_persistent;
