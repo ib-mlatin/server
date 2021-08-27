@@ -167,7 +167,9 @@ COMMIT;
 # Solaris reports 10 rows which is correct, but other OSes report 9.
 --replace_column 9 #
 EXPLAIN SELECT * FROM t1;
+--replace_column 9 #
 EXPLAIN SELECT COUNT(*) FROM t1;
+--replace_column 9 #
 EXPLAIN SELECT COUNT(c1) FROM t1;
 --replace_column 9 #
 EXPLAIN SELECT COUNT(c2) FROM t1;
