@@ -6267,9 +6267,8 @@ remove_key:
         if (!part_elem)
         {
           push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
-                              ER_DROP_PARTITION_NON_EXISTENT,
-                              ER_THD(thd, ER_DROP_PARTITION_NON_EXISTENT),
-                              "DROP");
+                              ER_PARTITION_NOT_EXISTS,
+                              ER_THD(thd, ER_PARTITION_NOT_EXISTS));
           names_it.remove();
         }
       }
