@@ -3498,7 +3498,7 @@ static my_bool kill_callback(THD *thd, kill_callback_arg *arg)
   {
     arg->thd= thd;
     mysql_mutex_lock(&thd->LOCK_thd_kill);    // Lock from delete
-    mysql_mutex_lock(&thd->LOCK_thd_data);
+    mysql_mutex_lock(&thd->LOCK_thd_data);    // Lock from usage
     return 1;
   }
   return 0;

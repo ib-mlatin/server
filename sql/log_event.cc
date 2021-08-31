@@ -1,6 +1,6 @@
 /*
    Copyright (c) 2000, 2019, Oracle and/or its affiliates.
-   Copyright (c) 2009, 2020, MariaDB
+   Copyright (c) 2009, 2021, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -8985,7 +8985,9 @@ err:
 }
 #endif /* MYSQL_CLIENT */
 
+
 #if defined(HAVE_REPLICATION) && !defined(MYSQL_CLIENT)
+
 static bool wsrep_must_replay(THD *thd)
 {
 #ifdef WITH_WSREP
@@ -8997,7 +8999,6 @@ static bool wsrep_must_replay(THD *thd)
   return false;
 #endif
 }
-
 
 int Xid_log_event::do_apply_event(rpl_group_info *rgi)
 {
@@ -9065,6 +9066,7 @@ int Xid_log_event::do_apply_event(rpl_group_info *rgi)
 
   if (sub_id && (!res || wsrep_must_replay(thd)))
     rpl_global_gtid_slave_state->update_state_hash(sub_id, &gtid, hton, rgi);
+
   /*
     Increment the global status commit count variable
   */
