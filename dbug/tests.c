@@ -13,25 +13,9 @@ char *push1=0;
 #include <my_pthread.h>
 #include <string.h>
 
-const char *func3()
-{
-  DBUG_ENTER("func3");
-  DBUG_RETURN(DBUG_EVALUATE("ret3", "ok", "ko"));
-}
-
-void func2()
-{
-  const char *s __attribute__((unused));
-  DBUG_ENTER("func2");
-  s=func3();
-  DBUG_PRINT("info", ("s=%s", s));
-  DBUG_VOID_RETURN;
-}
-
 int func1()
 {
   DBUG_ENTER("func1");
-  func2();
   if (push1)
   {
     DBUG_PUSH(push1);
@@ -72,8 +56,6 @@ int main (int argc __attribute__((unused)),
     DBUG_EXECUTE_IF("push",  DBUG_PUSH("+t"); );
     DBUG_EXECUTE("execute", fprintf(DBUG_FILE, "=> execute\n"); );
     DBUG_EXECUTE_IF("set",  DBUG_SET("+F"); );
-    fprintf(DBUG_FILE, "=> evaluate: %s\n",
-            DBUG_EVALUATE("evaluate", "ON", "OFF"));
     fprintf(DBUG_FILE, "=> evaluate_if: %s\n",
             (DBUG_IF("evaluate_if") ? "ON" : "OFF"));
     DBUG_EXECUTE_IF("pop",  DBUG_POP(); );
@@ -82,7 +64,6 @@ int main (int argc __attribute__((unused)),
       DBUG_EXPLAIN(s, sizeof(s)-1);
       DBUG_PRINT("explain", ("dbug explained: %s", s));
     }
-    func2();
     DBUG_LEAVE;
   }
   DBUG_SET(""); /* to not have my_end() in the traces */
