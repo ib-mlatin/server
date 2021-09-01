@@ -5190,6 +5190,7 @@ static void innobase_kill_query(handlerton*, THD *thd, enum thd_kill_levels)
       progressing, following query aborting is not necessary any more.
       Also, BF thread should own trx mutex for the victim. */
       DBUG_VOID_RETURN;
+    WSREP_INFO("::JAN:: innobase_kill_query: Current thread %lld thd %p thread %lld", os_thread_get_curr_id(), thd, thd_get_thread_id(thd));
 #endif /* WITH_WSREP */
     lock_mutex_enter();
     if (lock_t *lock= trx->lock.wait_lock)
@@ -18768,6 +18769,7 @@ void wsrep_abort_transaction(
 	if (victim_trx) {
 		lock_mutex_enter();
 		trx_mutex_enter(victim_trx);
+		WSREP_INFO("::JAN:: wsrep_abort_transaction: Current BF thread %lld thd %p thread %lld victim thd %p thread %lld", os_thread_get_curr_id(), bf_thd, thd_get_thread_id(bf_thd), victim_thd, thd_get_thread_id(victim_thd));
 		wsrep_innobase_kill_one_trx(bf_thd, victim_trx, signal);
 		trx_mutex_exit(victim_trx);
 		lock_mutex_exit();
