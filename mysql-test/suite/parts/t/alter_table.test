@@ -236,26 +236,3 @@ alter table t1 migrate partition p1 to table tp1;
 drop database EXISTENT;
 drop user alan;
 drop tables t1, tp1, tp2, tp4;
-
---echo # Cunning syntax
-create or replace table t1 (x int)
-partition by range(x) (
-  partition p1 values less than (10),
-  partition p2 values less than (20),
-  partition p3 values less than (30),
-  partition p4 values less than (40),
-  partition p5 values less than (50),
-  partition pn values less than maxvalue);
-
-alter table t1 migrate out partition p1 to table tp1;
-alter table t1 migrate out partition p2 to tp2;
-alter table t1 migrate partition p3 to tp3;
---replace_result $engine X ' PAGE_CHECKSUM=1' ''
-show create table t1;
---replace_result $engine X ' PAGE_CHECKSUM=1' ''
-show create table tp1;
---replace_result $engine X ' PAGE_CHECKSUM=1' ''
-show create table tp2;
---replace_result $engine X ' PAGE_CHECKSUM=1' ''
-show create table tp3;
-drop tables t1, tp1, tp2, tp3;

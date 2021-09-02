@@ -7492,16 +7492,6 @@ ident_or_empty:
         | ident
         ;
 
-move_out_partition:
-        MIGRATE_SYM PARTITION_SYM
-        | MIGRATE_SYM OUT_SYM PARTITION_SYM
-        ;
-
-to_table:
-        TO_SYM TABLE_SYM
-        | TO_SYM
-        ;
-
 alter_commands:
           /* empty */
         | DISCARD TABLESPACE
@@ -7629,10 +7619,10 @@ alter_commands:
               MYSQL_YYABORT;
             Lex->alter_info.partition_flags|= ALTER_PARTITION_EXCHANGE;
           }
-        | move_out_partition alt_part_name_item
-          to_table table_ident have_partitioning
+        | MIGRATE_SYM PARTITION_SYM alt_part_name_item
+          TO_SYM TABLE_SYM table_ident have_partitioning
           {
-            if (Lex->stmt_alter_table($4))
+            if (Lex->stmt_alter_table($6))
               MYSQL_YYABORT;
             Lex->m_sql_cmd= new (thd->mem_root) Sql_cmd_alter_table();
             if (unlikely(Lex->m_sql_cmd == NULL))
