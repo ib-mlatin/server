@@ -1237,7 +1237,7 @@ bool make_backup_name(THD *thd, TABLE_LIST *orig, TABLE_LIST *res)
   char res_name[NAME_LEN + 1];
 
   size_t len= my_snprintf(res_name, sizeof(res_name) - 1,
-                          backup_file_prefix "%lx-%llx", current_pid,
+                          backup_file_prefix "%lx-%llx-%s", current_pid,
                           thd->thread_id, orig->table_name.str);
 
   LEX_CSTRING n= { res_name, len };
@@ -1250,7 +1250,13 @@ bool make_backup_name(THD *thd, TABLE_LIST *orig, TABLE_LIST *res)
     my_error(ER_OUT_OF_RESOURCES, MYF(0));
     return true;
   }
-  res->alias.str= res->table_name.str;
+  if (lower_case_table_names)
+  {
+    my_casedn_str(system_charset_info, res_name);
+    res->alias.str= strmake_root(thd->mem_root, res_name, len);
+  }
+  else
+    res->alias.str= res->table_name.str;
   return false;
 }
 
@@ -1532,6 +1538,7 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables,
       DBUG_ASSERT(thd->mdl_context.is_lock_owner(MDL_key::TABLE, db.str,
                                                  table_name.str, MDL_SHARED));
 
+      // TODO: looks like a strange idiom. Can it bo done differently?
       alias= (lower_case_table_names == 2) ? table->alias : table_name;
       /* remove .frm file and engine files */
       path_length= build_table_filename(path, sizeof(path) - 1, db.str,
@@ -1606,7 +1613,8 @@ int mysql_rm_table_no_locks(THD *thd, TABLE_LIST *tables,
         }
         debug_crash_here("ddl_log_replace_after_rename_table");
         table_name= t.table_name;
-        alias= (lower_case_table_names == 2) ? table->alias : table_name;
+        // TODO: looks like a strange idiom. Can it bo done differently?
+        alias= (lower_case_table_names == 2) ? t.alias : table_name;
         /* remove .frm file and engine files */
         path_length= build_table_filename(path, sizeof(path) - 1, db.str,
                                           alias.str, reg_ext, 0);
