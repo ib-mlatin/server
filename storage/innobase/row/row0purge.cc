@@ -1028,6 +1028,58 @@ row_purge_parse_undo_rec(
 try_again:
 	purge_sys.check_stop_FTS();
 
+#if 1 /* FIXME: Remove this performance work-around */
+	/* We are acquiring exclusive dict_sys.latch only to
+	cause contention between purge tasks here. For correctness, it
+	suffices to acquired a shared latch. In that way, multiple
+	table lookups may be executed concurrently. But, under some
+	workloads, we would experience lower throughput due to
+	increased wait times in trx_purge_get_next_rec() and
+	trx_purge_truncate_history(). */
+	dict_sys.lock(SRW_LOCK_CALL);
+	node->table = dict_table_open_on_id(table_id, true,
+					    DICT_TABLE_OP_NORMAL);
+	node->mdl_ticket = nullptr;
+	if (!node->table) {
+unlock_err_exit:
+		dict_sys.unlock();
+		goto err_exit;
+	} else if (!node->table->is_readable() || node->table->corrupted) {
+		node->table->release();
+		node->table = nullptr;
+		goto unlock_err_exit;
+	} else if (size_t db_len = dict_get_db_name_len(
+			   node->table->name.m_name)) {
+		char db_buf[NAME_LEN + 1], tbl_buf[NAME_LEN + 1];
+		size_t tbl_len;
+		if (!node->table->parse_name<true>(db_buf, tbl_buf, &db_len,
+						   &tbl_len)) {
+			goto mdl_checked;
+		}
+		MDL_request request;
+		MDL_REQUEST_INIT(&request, MDL_key::TABLE, db_buf, tbl_buf,
+				 MDL_SHARED, MDL_EXPLICIT);
+		if (!static_cast<MDL_context*>(
+			    thd_mdl_context(node->purge_thd))
+		    ->try_acquire_lock(&request)) {
+			node->mdl_ticket = request.ticket;
+			if (node->mdl_ticket) {
+				goto mdl_checked;
+			}
+		}
+		node->table->release();
+		dict_sys.unlock();
+		node->table = dict_table_open_on_id(
+			table_id, false, DICT_TABLE_OP_NORMAL,
+			node->purge_thd, &node->mdl_ticket);
+		if (!node->table) {
+			goto err_exit;
+		}
+	} else {
+mdl_checked:
+		dict_sys.unlock();
+	}
+#else
 	node->table = dict_table_open_on_id(
 		table_id, false, DICT_TABLE_OP_NORMAL, node->purge_thd,
 		&node->mdl_ticket);
@@ -1037,12 +1089,7 @@ try_again:
 		release mdl happened as a part of open process itself */
 		goto err_exit;
 	}
-
-	/* FIXME: We are acquiring exclusive dict_sys.latch only to
-	avoid increased wait times in
-	trx_purge_get_next_rec() and trx_purge_truncate_history(). */
-	dict_sys.lock(SRW_LOCK_CALL);
-	dict_sys.unlock();
+#endif
 
 already_locked:
 	ut_ad(!node->table->is_temporary());
