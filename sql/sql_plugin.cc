@@ -313,6 +313,7 @@ public:
   sys_var_pluginvar(sys_var_chain *chain, const char *name_arg,
                     st_plugin_int *p, st_mysql_sys_var *plugin_var_arg);
   sys_var_pluginvar *cast_pluginvar() { return this; }
+  bool is_plugin() override { return true; }
   uchar* real_value_ptr(THD *thd, enum_var_type type) const;
   TYPELIB* plugin_var_typelib(void) const;
   const uchar* do_value_ptr(THD *thd, enum_var_type type, const LEX_CSTRING *base) const;

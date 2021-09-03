@@ -231,8 +231,9 @@ int PFS_system_variable_cache::do_materialize_all(THD *unsafe_thd)
   m_materialized= false;
   m_cache.clear();
 
+  mysql_mutex_lock(&LOCK_global_system_variables);
   /* Block plugins from unloading. */
-  mysql_mutex_lock(&LOCK_plugin_delete);
+  mysql_mutex_lock(&LOCK_plugin);
 
   /*
      Build array of SHOW_VARs from system variable hash. Do this within
@@ -246,14 +247,19 @@ int PFS_system_variable_cache::do_materialize_all(THD *unsafe_thd)
   if ((m_safe_thd= get_THD(unsafe_thd)) != NULL)
   {
     DEBUG_SYNC(m_current_thd, "materialize_session_variable_array_THD_locked");
-    ret= make_call(&PFS_system_variable_cache::refresh_vars, 1);
+    ret= request_refresh_vars(&PFS_system_variable_cache::refresh_vars,
+                              true, 1);
 
-    /* Release lock taken in get_THD(). */
-    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_data);
+    mysql_mutex_assert_not_owner(&LOCK_plugin);
 
     m_materialized= true;
   }
-  mysql_mutex_unlock(&LOCK_plugin_delete);
+  else
+  {
+    mysql_mutex_unlock(&LOCK_plugin);
+  }
+
+  mysql_mutex_unlock(&LOCK_global_system_variables);
   return ret;
 }
 
@@ -310,20 +316,42 @@ class PFS_system_variable_cache_apc: public Apc_target::Apc_call
 public:
   typedef PFS_system_variable_cache::Request_func Request;
   PFS_system_variable_cache_apc(PFS_system_variable_cache *pfs, Request func,
-                                uint param)
-    : m_pfs(pfs), m_func(func), m_param(param) {}
+                                uint param, bool plugin_update)
+    : m_pfs(pfs), m_func(func), m_param(param), m_plugin_update(plugin_update)
+  {}
 private:
   PFS_system_variable_cache *m_pfs;
   Request m_func;
   uint m_param;
+  bool m_plugin_update;
 
   void call_in_target_thread() override
   {
-    (m_pfs->*m_func)(m_param);
+    if (m_plugin_update)
+    {
+      /*
+        Avoid recursive LOCK_system_variables_hash acquisition in
+        intern_sys_var_ptr() by pre-syncing dynamic session variables.
+      */
+
+      THD *safe_thd= m_pfs->safe_thd();
+
+      if (m_pfs->query_scope() == OPT_SESSION &&
+          (!safe_thd->variables.dynamic_variables_ptr ||
+           global_system_variables.dynamic_variables_head >
+               safe_thd->variables.dynamic_variables_head))
+      {
+        mysql_prlock_rdlock(&LOCK_system_variables_hash);
+        sync_dynamic_session_variables(safe_thd, false);
+        mysql_prlock_unlock(&LOCK_system_variables_hash);
+      }
+    }
+    (m_pfs->*m_func)(m_param, m_plugin_update);
   }
 };
 
-void PFS_system_variable_cache::refresh_vars(uint all)
+void PFS_system_variable_cache::refresh_vars(uint including_global,
+                                             bool refresh_plugin)
 {
   for (SHOW_VAR *show_var= m_show_var_array.front();
        show_var->value && (show_var != m_show_var_array.end()); show_var++)
@@ -331,7 +359,8 @@ void PFS_system_variable_cache::refresh_vars(uint all)
     sys_var *value= (sys_var *)show_var->value;
 
     /* Match the system variable scope to the target scope. */
-    if (all || match_scope(value->scope()))
+    if (value->is_plugin() == refresh_plugin
+        && (including_global || match_scope(value->scope())))
     {
       /* Resolve value, convert to text, add to cache. */
       System_variable system_var(m_safe_thd, show_var, m_query_scope, false);
@@ -339,7 +368,7 @@ void PFS_system_variable_cache::refresh_vars(uint all)
     }
   }
 }
-void PFS_system_variable_cache::refresh_one_var(uint index)
+void PFS_system_variable_cache::refresh_one_var(uint index, bool need_plugin)
 {
   SHOW_VAR *show_var= &m_show_var_array.at(index);
 
@@ -349,7 +378,7 @@ void PFS_system_variable_cache::refresh_one_var(uint index)
     sys_var *value= (sys_var *)show_var->value;
 
     /* Match the system variable scope to the target scope. */
-    if (match_scope(value->scope()))
+    if (value->is_plugin() == need_plugin && match_scope(value->scope()))
     {
       /* Resolve value, convert to text, add to cache. */
       System_variable system_var(m_safe_thd, show_var, m_query_scope, false);
@@ -359,25 +388,57 @@ void PFS_system_variable_cache::refresh_one_var(uint index)
 }
 
 
-int PFS_system_variable_cache::make_call(Request_func func, uint param)
+int PFS_system_variable_cache::make_call(Request_func func, uint param,
+                                         bool keep_global_lock,
+                                         bool update_plugin)
 {
   int ret= 0;
   THD *requestor_thd= current_thd;
   if (requestor_thd == m_safe_thd)
   {
-    (this->*func)(param);
+    (this->*func)(param, update_plugin);
   }
   else
   {
-    auto apc_call= new PFS_system_variable_cache_apc(this, func, param);
+    PFS_system_variable_cache_apc apc_call(this, func, param, update_plugin);
     bool timed_out;
-//    mysql_mutex_lock(&m_safe_thd->LOCK_thd_kill);
-    ret= m_safe_thd->apc_target.make_apc_call(requestor_thd, apc_call, 0,
+    ret= m_safe_thd->apc_target.make_apc_call(requestor_thd, &apc_call, 0,
                                               &timed_out);
+    if (timed_out)
+      ret= 1;
   }
   return ret;
 }
+int PFS_system_variable_cache::request_refresh_vars(Request_func func,
+                                                    bool keep_global_lock,
+                                                    uint param)
+{
+  if (current_thd == m_safe_thd)
+    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_kill);
 
+  /*
+     First, we will request the variables added by plugins, under LOCK_plugin,
+     to make sure these variables can't invalidate because of plugin unloading.
+  */
+  mysql_mutex_assert_owner(&LOCK_plugin);
+
+  int ret= make_call(func, param, keep_global_lock, true);
+
+  mysql_mutex_unlock(&LOCK_plugin);
+  /* Unlock LOCK_global_system_variables as soon as possible */
+  if (!keep_global_lock)
+    mysql_mutex_unlock(&LOCK_global_system_variables);
+
+  /*
+     Second, request core system variables without LOCK_plugin, since some of
+     them can be in conflict with the latter. See for example,
+     Sys_var_multi_source_ulonglong::get_master_info_ulonglong_value.
+  */
+  if (ret == 0)
+    ret= make_call(func, param, keep_global_lock, false);
+
+  return ret;
+}
 /**
   Build a SESSION system variable cache for a pfs_thread.
   Requires that init_show_var_array() has already been called.
@@ -391,8 +452,11 @@ int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread)
   m_materialized= false;
   m_cache.clear();
 
+  /* Will be released ASAP when plugin updates are done */
+  mysql_mutex_lock(&LOCK_global_system_variables);
+
   /* Block plugins from unloading. */
-  mysql_mutex_lock(&LOCK_plugin_delete);
+  mysql_mutex_lock(&LOCK_plugin);
 
   /* The SHOW_VAR array must be initialized externally. */
   DBUG_ASSERT(m_initialized);
@@ -405,19 +469,23 @@ int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread)
   if ((m_safe_thd= get_THD(pfs_thread)) != NULL)
   {
     // Refresh all system vars
-    ret= make_call(&PFS_system_variable_cache::refresh_vars, 0);
+    ret= request_refresh_vars(&PFS_system_variable_cache::refresh_vars, false,
+                              0);
 
-//    /* Release lock taken in get_THD(). */
-//    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_data);
+    mysql_mutex_assert_not_owner(&LOCK_plugin);
 
     m_materialized= true;
+  }
+  else
+  {
+    mysql_mutex_unlock(&LOCK_plugin);
+    mysql_mutex_unlock(&LOCK_global_system_variables);
   }
 
   /* Mark mem_root blocks as free. */
   if (m_use_mem_root)
     clear_mem_root();
 
-  mysql_mutex_unlock(&LOCK_plugin_delete);
   return ret;
 }
 
@@ -426,7 +494,8 @@ int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread)
   Requires that init_show_var_array() has already been called.
   Return 0 for success.
 */
-int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread, uint index)
+int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread,
+                                                      uint index)
 {
   int ret= 1;
 
@@ -434,8 +503,10 @@ int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread, ui
   m_materialized= false;
   m_cache.clear();
 
+  /* Will be released ASAP when plugin updates are done */
+  mysql_mutex_lock(&LOCK_global_system_variables);
   /* Block plugins from unloading. */
-  mysql_mutex_lock(&LOCK_plugin_delete);
+  mysql_mutex_lock(&LOCK_plugin);
 
   /* The SHOW_VAR array must be initialized externally. */
   DBUG_ASSERT(m_initialized);
@@ -443,15 +514,19 @@ int PFS_system_variable_cache::do_materialize_session(PFS_thread *pfs_thread, ui
   /* Get and lock a validated THD from the thread manager. */
   if ((m_safe_thd= get_THD(pfs_thread)) != NULL)
   {
-    ret= make_call(&PFS_system_variable_cache::refresh_one_var, index);
+    ret= request_refresh_vars(&PFS_system_variable_cache::refresh_one_var,
+                              false, index);
 
-    /* Release lock taken in get_THD(). */
-    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_data);
+    mysql_mutex_assert_not_owner(&LOCK_plugin);
 
     m_materialized= true;
   }
+  else
+  {
+    mysql_mutex_unlock(&LOCK_plugin);
+    mysql_mutex_unlock(&LOCK_global_system_variables);
+  }
 
-  mysql_mutex_unlock(&LOCK_plugin_delete);
   return ret;
 }
 
@@ -467,8 +542,10 @@ int PFS_system_variable_cache::do_materialize_session(THD *unsafe_thd)
   m_materialized= false;
   m_cache.clear();
 
+  /* Will be released ASAP when plugin updates are done */
+  mysql_mutex_lock(&LOCK_global_system_variables);
   /* Block plugins from unloading. */
-  mysql_mutex_lock(&LOCK_plugin_delete);
+  mysql_mutex_lock(&LOCK_plugin);
 
   /*
      Build array of SHOW_VARs from system variable hash. Do this within
@@ -482,15 +559,19 @@ int PFS_system_variable_cache::do_materialize_session(THD *unsafe_thd)
   if ((m_safe_thd= get_THD(unsafe_thd)) != NULL)
   {
     // Refresh scope system vars
-    ret= make_call(&PFS_system_variable_cache::refresh_vars, 0);
+    ret= request_refresh_vars(&PFS_system_variable_cache::refresh_vars,
+                              false, 0);
 
-    /* Release lock taken in get_THD(). */
-    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_data);
+    mysql_mutex_assert_not_owner(&LOCK_plugin);
 
     m_materialized= true;
   }
+  else
+  {
+    mysql_mutex_unlock(&LOCK_plugin);
+    mysql_mutex_unlock(&LOCK_global_system_variables);
+  }
 
-  mysql_mutex_unlock(&LOCK_plugin_delete);
   return ret;
 }
 
@@ -554,7 +635,10 @@ void System_variable::init(THD *target_thd, const SHOW_VAR *show_var,
   /* Get the value of the system variable. */
   String buf(m_value_str, sizeof(m_value_str) - 1, system_charset_info);
 
-  if (!system_var->val_str(&buf, target_thd, query_scope, &null_clex_str))
+  if (!system_var->val_str_nolock(&buf, target_thd,
+                                  system_var->value_ptr(target_thd,
+                                                        query_scope,
+                                                        &null_clex_str)))
     buf.length(0);
   m_value_length= MY_MIN(buf.length(), SHOW_VAR_FUNC_BUFF_SIZE);
 

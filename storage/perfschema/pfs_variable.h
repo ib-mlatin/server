@@ -102,15 +102,15 @@
   LOCK PRIORITIES
   ---------------
   System Variables
-    LOCK_plugin_delete              (block plugin delete)
+   LOCK_global_system_variables (very briefly held)
+    LOCK_plugin                     (block plugin delete)
      LOCK_system_variables_hash
-     LOCK_thd_data                  (block THD delete)
+     LOCK_thd_kill                  (block THD delete)
      LOCK_thd_sysvar                (block system variable updates, alloc_and_copy_thd_dynamic_variables)
-       LOCK_global_system_variables (very briefly held)
 
   Status Variables
     LOCK_status
-      LOCK_thd_data                 (block THD delete)
+      LOCK_thd_kill                 (block THD delete)
 */
 
 /* Iteration on THD from the sql layer. */
@@ -365,6 +365,17 @@ public:
   THD *get_THD(THD *thd);
   THD *get_THD(PFS_thread *pfs_thread);
 
+  THD *safe_thd() const
+  {
+    DBUG_ASSERT(m_safe_thd);
+    return m_safe_thd;
+  }
+
+  enum_var_type query_scope() const
+  {
+    return m_query_scope;
+  }
+
   /**
     Get a single variable from the cache.
     Get the first element in the cache by default.
@@ -605,7 +616,8 @@ public:
   ulonglong get_sysvar_hash_version(void) { return m_version; }
   ~PFS_system_variable_cache() { free_mem_root(); }
 
-  typedef void (PFS_system_variable_cache::* Request_func)(uint);
+  typedef void (PFS_system_variable_cache::* Request_func)(uint,
+                                                           bool plugin_update);
 private:
   /* Build SHOW_var array. */
   bool init_show_var_array(enum_var_type scope, bool strict);
@@ -622,10 +634,13 @@ private:
   /* Single variable -  PFS_thread */
   int do_materialize_session(PFS_thread *pfs_thread, uint index);
 
-  int make_call(Request_func func, uint param);
+  int make_call(Request_func func, uint param, bool update_plugin,
+                bool keep_global_lock);
+  int request_refresh_vars(Request_func func, bool keep_global_lock,
+                           uint param);
 
-  void refresh_vars(uint all);
-  void refresh_one_var(uint);
+  void refresh_vars(uint including_global, bool refresh_plugin);
+  void refresh_one_var(uint index, bool refresh_plugin);
 
   /* Temporary mem_root to use for materialization. */
   MEM_ROOT m_mem_sysvar;

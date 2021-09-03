@@ -142,6 +142,7 @@ public:
   bool is_set_stmt_ok() const { return !(flags & NO_SET_STATEMENT); }
   bool is_written_to_binlog(enum_var_type type)
   { return type != OPT_GLOBAL && binlog_status == SESSION_VARIABLE_IN_BINLOG; }
+  virtual bool is_plugin() { return false; }
   bool check_update_type(const Item *item)
   {
     Item_result type= item->result_type();

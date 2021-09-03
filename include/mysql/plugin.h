@@ -335,7 +335,7 @@ typedef void (*mysql_var_update_func)(MYSQL_THD thd,
 #define DECLARE_THDVAR_FUNC(type) \
   type *(*resolve)(MYSQL_THD thd, int offset)
 
-#define DECLARE_MYSQL_THDVAR_BASIC(name, type) struct { \
+#define   DECLARE_MYSQL_THDVAR_BASIC(name, type) struct { \
   MYSQL_PLUGIN_VAR_HEADER;      \
   int offset;                   \
   const type def_val;           \
