@@ -394,8 +394,12 @@ int PFS_system_variable_cache::make_call(Request_func func, uint param,
 {
   int ret= 0;
   THD *requestor_thd= current_thd;
-  if (requestor_thd == m_safe_thd)
+  if (requestor_thd == m_safe_thd || !m_safe_thd->apc_target.is_enabled())
   {
+    /*
+       The disabled thread can be hopefully processed directly, because it
+       cannot wake up without acquiring LOCK_thd_kill.
+    */
     (this->*func)(param, update_plugin);
   }
   else
@@ -416,6 +420,7 @@ int PFS_system_variable_cache::request_refresh_vars(Request_func func,
   if (current_thd == m_safe_thd)
     mysql_mutex_unlock(&m_safe_thd->LOCK_thd_kill);
 
+  bool was_enabled= !m_safe_thd->apc_target.is_enabled();
   /*
      First, we will request the variables added by plugins, under LOCK_plugin,
      to make sure these variables can't invalidate because of plugin unloading.
@@ -437,6 +442,8 @@ int PFS_system_variable_cache::request_refresh_vars(Request_func func,
   if (ret == 0)
     ret= make_call(func, param, keep_global_lock, false);
 
+  if (was_enabled)
+    mysql_mutex_unlock(&m_safe_thd->LOCK_thd_kill);
   return ret;
 }
 /**
